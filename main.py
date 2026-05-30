@@ -1,12 +1,16 @@
+#importing libary's
 import pygame
 import sys
 import math
 import random
 
+#setting up a virables
+#screen size and fps
 screenw = 960
 screenh = 540
 fps = 60
 
+#colors for everything in the game
 white = (255, 255, 255)
 black = (0, 0, 0)
 skycolor1 = (18, 18, 55)
@@ -25,6 +29,7 @@ hintcolor = (170, 170, 195)
 goldcolor = (255, 200, 0)
 silvercolor = (180, 180, 180)
 
+#physics and movement settings
 gravity = 0.45
 maxfall = 14.0
 movespeed = 4.5
@@ -36,6 +41,9 @@ dashtime = 12
 coyotetime = 6
 jumpbuffer = 8
 
+
+#creating a levels.
+#1 level
 level1 = {}
 level1["start"] = (50, 460)
 level1["goal"] = (820, 130, 28, 40)
@@ -49,6 +57,7 @@ level1["platforms"].append((370, 335, 140, 18))
 level1["platforms"].append((560, 255, 140, 18))
 level1["platforms"].append((720, 170, 180, 18))
 
+#2nd level
 level2 = {}
 level2["start"] = (50, 460)
 level2["goal"] = (880, 115, 28, 40)
@@ -70,6 +79,7 @@ level2["platforms"].append((590, 325, 90, 15))
 level2["platforms"].append((710, 235, 90, 15))
 level2["platforms"].append((840, 155, 130, 18))
 
+#3 level
 level3 = {}
 level3["start"] = (40, 460)
 level3["goal"] = (870, 115, 28, 40)
@@ -88,75 +98,99 @@ level3["platforms"].append((780, 355, 75, 12))
 level3["platforms"].append((660, 440, 75, 12))
 level3["platforms"].append((280, 510, 680, 30))
 
+#putting all levels into one list
 levels = []
 levels.append(level1)
 levels.append(level2)
 levels.append(level3)
 
 
+#creating a player with an argument.
 class Player:
+    #player size in pixels
     pw = 20
     ph = 28
 
     def __init__(self, x, y):
+        #hitbox of the player
         self.rect = pygame.Rect(x, y, self.pw, self.ph)
+        #movement speed in x and y
         self.speedx = 0.0
         self.speedy = 0.0
+        #state flags
         self.onground = False
         self.onwall = 0
+        #timers for coyote time and jump buffer
         self.coyote = 0
         self.jumpbuf = 0
+        #dash stuff
         self.dashes = 1
         self.dashframes = 0
         self.dashspeedx = 0.0
         self.dashspeedy = 0.0
+        #direction player is looking
         self.facing = 1
+        #trail positions for drawing
         self.trail = []
         self.dead = False
+        #for variable height jump
         self.jumpholding = False
         self.jumpframes = 0
 
+    #creating player function
+    #jump function
     def startjump(self):
+        #set jump buffer so jump registers even slightly before landing
         self.jumpbuf = jumpbuffer
 
     def releasejump(self):
+        #stop holding jump and cut speed so short tap = low jump
         self.jumpholding = False
         if self.speedy < minjump:
             self.speedy = minjump
 
     def dash(self, dx, dy):
+        #no dash available or already dashing - do nothing
         if self.dashes <= 0 or self.dashframes > 0:
             return
         self.dashes -= 1
+        #dash straight forward if no direction pressed
         if dx == 0 and dy == 0:
             dx = self.facing
+        #normalize direction and apply dash speed
         dist = math.hypot(dx, dy)
         self.dashspeedx = dx / dist * dashspeed
         self.dashspeedy = dy / dist * dashspeed
         self.dashframes = dashtime
 
     def update(self, platlist, spikelist, goalrect):
+        #skip update if already dead
         if self.dead:
             return None
 
         keys = pygame.key.get_pressed()
 
+        #any of these keys counts as jump held
         jumpkey = keys[pygame.K_z] or keys[pygame.K_SPACE] or keys[pygame.K_UP] or keys[pygame.K_w]
 
         if self.dashframes > 0:
+            #during dash override speed with dash direction
             self.dashframes -= 1
             self.speedx = self.dashspeedx
             self.speedy = self.dashspeedy
         else:
+            #normal movement
             goright = keys[pygame.K_RIGHT] or keys[pygame.K_d]
             goleft = keys[pygame.K_LEFT] or keys[pygame.K_a]
             dx = int(bool(goright)) - int(bool(goleft))
             if dx != 0:
                 self.facing = dx
             self.speedx = dx * movespeed
+            #slow fall when touching wall (wall slide)
             if self.onwall and not self.onground and self.speedy > 0:
                 self.speedy = min(self.speedy, 2.0)
 
+            #variable jump height - holding key keeps going up longer
             if self.jumpholding and self.jumpframes > 0 and self.speedy < 0:
                 if jumpkey:
                     self.jumpframes -= 1
@@ -165,23 +199,28 @@ class Player:
                     if self.speedy < minjump:
                         self.speedy = minjump
 
+            #apply gravity, cap at max fall speed
             self.speedy = min(self.speedy + gravity, maxfall)
 
+        #reset coyote and dash when on ground
         if self.onground:
             self.coyote = coyotetime
             self.dashes = 1
         elif self.coyote > 0:
             self.coyote -= 1
 
+        #count down jump buffer
         if self.jumpbuf > 0:
             self.jumpbuf -= 1
 
+        #normal jump - buffer and coyote both active
         if self.jumpbuf > 0 and self.coyote > 0:
             self.speedy = maxjump
             self.coyote = 0
             self.jumpbuf = 0
             self.jumpholding = True
             self.jumpframes = jumpholdmax
+        #wall jump - on wall, in air, buffer active
         elif self.jumpbuf > 0 and self.onwall and not self.onground:
             self.speedy = maxjump
             self.speedx = -self.onwall * movespeed * 2
@@ -189,10 +228,12 @@ class Player:
             self.jumpholding = True
             self.jumpframes = jumpholdmax
 
+        #save position for trail effect
         self.trail.append(self.rect.center)
         if len(self.trail) > 8:
             self.trail.pop(0)
 
+        #move horizontally and check wall collisions
         self.rect.x += int(self.speedx)
         self.onwall = 0
         for p in platlist:
@@ -205,6 +246,7 @@ class Player:
                     self.onwall = -1
                 self.speedx = 0
 
+        #move vertically and check floor/ceiling collisions
         self.rect.y += int(self.speedy)
         self.onground = False
         for p in platlist:
@@ -218,15 +260,18 @@ class Player:
                     self.rect.top = p.bottom
                 self.speedy = 0
 
+        #spike = instant death
         for s in spikelist:
             if self.rect.colliderect(s):
                 self.dead = True
                 return "dead"
 
+        #fell off screen = dead
         if self.rect.top > screenh + 60:
             self.dead = True
             return "dead"
 
+        #reached goal
         if self.rect.colliderect(goalrect):
             return "goal"
 
@@ -235,25 +280,30 @@ class Player:
 
 class Game:
     def __init__(self):
+        #init pygame and create window
         pygame.init()
         self.screen = pygame.display.set_mode((screenw, screenh))
         pygame.display.set_caption("Sky Climber")
         self.makeicon()
         self.clock = pygame.time.Clock()
 
+        #fonts for different text sizes
         self.bigfont = pygame.font.SysFont("Arial", 44, bold=True)
         self.midfont = pygame.font.SysFont("Arial", 26)
         self.smallfont = pygame.font.SysFont("Arial", 18)
         self.tinyfont = pygame.font.SysFont("Arial", 14)
 
+        #random star positions for background
         self.stars = []
         for i in range(120):
             sx = random.randint(0, screenw)
             sy = random.randint(0, screenh)
             self.stars.append((sx, sy))
 
+        #pre-render the background once so we dont redraw every frame
         self.bg = self.makebg()
 
+        #game state machine
         self.state = "menu"
         self.levelnum = 0
         self.deaths = 0
@@ -265,11 +315,13 @@ class Game:
         self.deathtimer = 0
         self.respawning = False
 
+        #speedrun timer stuff
         self.starttime = 0
         self.totaltime = 0
         self.besttime = 0
         self.timerrunning = False
 
+        #per-level split times
         self.leveltimes = []
         self.levelstarttime = 0
         self.bestleveltimes = []
@@ -278,6 +330,7 @@ class Game:
         self.bestleveltimes.append(0)
 
     def makeicon(self):
+        #draw a tiny icon for the window titlebar
         ico = pygame.Surface((32, 32))
         ico.fill((18, 18, 55))
         pygame.draw.rect(ico, playercolor, (9, 9, 12, 16))
@@ -285,6 +338,7 @@ class Game:
         pygame.display.set_icon(ico)
 
     def makebg(self):
+        #draw gradient sky line by line and put stars on top
         surf = pygame.Surface((screenw, screenh))
         for y in range(screenh):
             t = y / screenh
@@ -299,6 +353,7 @@ class Game:
         return surf
 
     def loadlevel(self, num):
+        #load platforms, spikes, goal and spawn player for the given level
         lv = levels[num]
         self.platlist = []
         for p in lv["platforms"]:
@@ -318,6 +373,7 @@ class Game:
         self.levelstarttime = pygame.time.get_ticks()
 
     def startgame(self):
+        #reset everything and begin from level 0
         self.levelnum = 0
         self.deaths = 0
         self.respawning = False
@@ -331,6 +387,7 @@ class Game:
         self.startgame()
 
     def spawnparticles(self, x, y, color):
+        #burst of 22 particles flying out in random directions
         for i in range(22):
             angle = random.uniform(0, math.pi * 2)
             speed = random.uniform(2, 9)
@@ -344,6 +401,7 @@ class Game:
             self.particles.append(dot)
 
     def updateparticles(self):
+        #move particles, apply gravity, remove dead ones
         newlist = []
         for p in self.particles:
             p["x"] += p["vx"]
@@ -355,6 +413,7 @@ class Game:
         self.particles = newlist
 
     def drawparticles(self):
+        #draw each particle smaller and dimmer as life runs out
         for p in self.particles:
             alpha = p["life"] / 38
             r = int(5 * alpha)
@@ -365,6 +424,7 @@ class Game:
             pygame.draw.circle(self.screen, p["color"], (px, py), r)
 
     def drawstarshape(self, cx, cy, rout, rin, color):
+        #draw a 5-point star by alternating outer and inner radius points
         pts = []
         for i in range(10):
             angle = math.pi / 5 * i - math.pi / 2
@@ -378,12 +438,14 @@ class Game:
         pygame.draw.polygon(self.screen, color, pts)
 
     def drawplatforms(self):
+        #green fill, darker border, white highlight line on top edge
         for p in self.platlist:
             pygame.draw.rect(self.screen, platcolor, p, border_radius=3)
             pygame.draw.rect(self.screen, platedge, p, 2, border_radius=3)
             pygame.draw.line(self.screen, white, (p.left + 3, p.top + 1), (p.right - 3, p.top + 1))
 
     def drawspikes(self):
+        #draw triangles packed side by side to fill the spike zone
         for s in self.spikelist:
             count = s.width // 10
             for i in range(count):
@@ -395,6 +457,7 @@ class Game:
                 pygame.draw.polygon(self.screen, spikecolor, pts)
 
     def drawgoal(self):
+        #pulsing glow effect on the goal using sin wave
         t = pygame.time.get_ticks() / 600
         glow = int(abs(math.sin(t)) * 45)
         r = min(255, goalcolor[0] + glow)
@@ -403,12 +466,14 @@ class Game:
         col = (r, g, b)
         pygame.draw.rect(self.screen, col, self.goalrect, border_radius=5)
         pygame.draw.rect(self.screen, white, self.goalrect, 2, border_radius=5)
+        #star shape floating above the goal rect
         self.drawstarshape(self.goalrect.centerx, self.goalrect.top - 13, 10, 4, goalcolor)
 
     def drawplayer(self):
         pl = self.player
         if pl.dead:
             return
+        #draw ghost trail with increasing opacity for older positions
         for i in range(len(pl.trail)):
             tx = pl.trail[i][0]
             ty = pl.trail[i][1]
@@ -417,12 +482,14 @@ class Game:
             s.fill((trailcolor[0], trailcolor[1], trailcolor[2], alpha))
             self.screen.blit(s, (tx - pl.pw // 2, ty - pl.ph // 2))
 
+        #blue during dash, pink normally
         if pl.dashframes > 0:
             col = dashcolor
         else:
             col = playercolor
         pygame.draw.rect(self.screen, col, pl.rect, border_radius=5)
 
+        #draw eye on correct side based on facing direction
         if pl.facing > 0:
             ex = pl.rect.left + 13
         else:
@@ -431,10 +498,12 @@ class Game:
         pygame.draw.circle(self.screen, white, (ex, ey), 3)
         pygame.draw.circle(self.screen, black, (ex + pl.facing, ey), 2)
 
+        #small dot below player shows dash is ready
         if pl.dashes > 0:
             pygame.draw.circle(self.screen, goalcolor, (pl.rect.centerx, pl.rect.bottom + 5), 4)
 
     def gettimestr(self, ms):
+        #convert milliseconds to m:ss.mm string
         if ms < 0:
             ms = 0
         secs = ms // 1000
@@ -444,9 +513,11 @@ class Game:
         return str(minutes) + ":" + str(secs).zfill(2) + "." + str(millis).zfill(2)
 
     def drawui(self):
+        #top left - death counter and level number
         self.screen.blit(self.midfont.render("Deaths: " + str(self.deaths), True, deathcolor), (10, 8))
         self.screen.blit(self.smallfont.render("Level " + str(self.levelnum + 1) + " of " + str(len(levels)), True, textcolor), (10, 38))
 
+        #dash status indicator
         if self.player and not self.player.dead:
             if self.player.dashes > 0:
                 self.screen.blit(self.smallfont.render("Dash: ready", True, goalcolor), (10, 60))
@@ -455,10 +526,12 @@ class Game:
 
         self.drawtimer()
 
+        #controls hint at bottom of screen
         hint = self.tinyfont.render("WASD/Arrows: move  Z/Space: jump (hold=higher)  X/Shift: dash  R: restart", True, hintcolor)
         self.screen.blit(hint, (screenw // 2 - hint.get_width() // 2, screenh - 20))
 
     def drawtimer(self):
+        #use live time while running, frozen time on win screen
         if self.timerrunning:
             totalms = pygame.time.get_ticks() - self.starttime
             levelms = pygame.time.get_ticks() - self.levelstarttime
@@ -466,6 +539,7 @@ class Game:
             totalms = self.totaltime
             levelms = 0
 
+        #semi-transparent panel in top-right corner
         panelx = screenw - 220
         panely = 6
         panelw = 214
@@ -475,20 +549,24 @@ class Game:
         panel.fill((0, 0, 0, 120))
         self.screen.blit(panel, (panelx, panely))
 
+        #total run time - big and centered
         totalstr = self.gettimestr(totalms)
         totalsurf = self.midfont.render(totalstr, True, white)
         self.screen.blit(totalsurf, (panelx + panelw // 2 - totalsurf.get_width() // 2, panely + 6))
 
+        #personal best below if one exists
         if self.besttime > 0:
             beststr = self.gettimestr(self.besttime)
             bestsurf = self.tinyfont.render("PB: " + beststr, True, goldcolor)
             self.screen.blit(bestsurf, (panelx + panelw // 2 - bestsurf.get_width() // 2, panely + 34))
 
+        #current level time
         if self.timerrunning:
             levelstr = self.gettimestr(levelms)
             lvlsurf = self.smallfont.render("Lvl: " + levelstr, True, hintcolor)
             self.screen.blit(lvlsurf, (panelx + panelw // 2 - lvlsurf.get_width() // 2, panely + 52))
 
+        #completed level split times at the bottom of the panel
         if len(self.leveltimes) > 0:
             splits = ""
             for i in range(len(self.leveltimes)):
@@ -498,12 +576,14 @@ class Game:
             self.screen.blit(splitsurf, (panelx + panelw // 2 - splitsurf.get_width() // 2, panely + 72))
 
     def drawmenu(self):
+        #background, big star, title
         self.screen.blit(self.bg, (0, 0))
         self.drawstarshape(screenw // 2, screenh // 2 - 130, 30, 12, goalcolor)
 
         title = self.bigfont.render("SKY CLIMBER", True, goalcolor)
         self.screen.blit(title, (screenw // 2 - title.get_width() // 2, screenh // 2 - 105))
 
+        #tutorial hints in the middle
         lines = []
         lines.append("Reach the star on each level!")
         lines.append("Hold jump longer = jump higher!")
@@ -513,15 +593,18 @@ class Game:
             s = self.smallfont.render(lines[i], True, textcolor)
             self.screen.blit(s, (screenw // 2 - s.get_width() // 2, screenh // 2 - 42 + i * 24))
 
+        #blinking press enter text - toggles every 550ms
         if (pygame.time.get_ticks() // 550) % 2 == 1:
             s = self.midfont.render("Press ENTER to start", True, white)
             self.screen.blit(s, (screenw // 2 - s.get_width() // 2, screenh // 2 + 55))
 
+        #show personal best if player has finished before
         if self.besttime > 0:
             beststr = self.gettimestr(self.besttime)
             s = self.smallfont.render("PB: " + beststr, True, goldcolor)
             self.screen.blit(s, (screenw // 2 - s.get_width() // 2, screenh // 2 + 90))
 
+            #best split times per level
             if len(self.bestleveltimes) > 0:
                 splits = "Splits: "
                 for i in range(len(levels)):
@@ -535,6 +618,7 @@ class Game:
         self.screen.blit(ctrl, (screenw // 2 - ctrl.get_width() // 2, screenh - 28))
 
     def drawwinscreen(self):
+        #win screen with big star and final stats
         self.screen.blit(self.bg, (0, 0))
         self.drawparticles()
         self.drawstarshape(screenw // 2, screenh // 2 - 100, 60, 25, goalcolor)
@@ -546,10 +630,12 @@ class Game:
         d = self.midfont.render("Total: " + timestr + "   Deaths: " + str(self.deaths), True, white)
         self.screen.blit(d, (screenw // 2 - d.get_width() // 2, screenh // 2 + 10))
 
+        #new PB banner if this run was faster
         if self.besttime > 0 and self.totaltime <= self.besttime:
             pb = self.smallfont.render("New PB!", True, goldcolor)
             self.screen.blit(pb, (screenw // 2 - pb.get_width() // 2, screenh // 2 + 42))
 
+        #split comparison - gold if better than best, red if worse
         if len(self.leveltimes) > 0:
             y = screenh // 2 + 68
             for i in range(len(self.leveltimes)):
@@ -573,17 +659,21 @@ class Game:
         self.screen.blit(r, (screenw // 2 - r.get_width() // 2, screenh // 2 + 160))
 
     def run(self):
+        #main game loop
         while True:
+            #handle all events
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     pygame.quit()
                     sys.exit()
 
                 if event.type == pygame.KEYDOWN:
+                    #escape always quits
                     if event.key == pygame.K_ESCAPE:
                         pygame.quit()
                         sys.exit()
 
+                    #R restarts from any state
                     if event.key == pygame.K_r:
                         if self.state == "play" or self.state == "win":
                             self.restartgame()
@@ -597,8 +687,10 @@ class Game:
                             self.startgame()
 
                     elif self.state == "play" and not self.respawning:
+                        #jump keys - just buffer the jump
                         if event.key == pygame.K_z or event.key == pygame.K_SPACE or event.key == pygame.K_UP or event.key == pygame.K_w:
                             self.player.startjump()
+                        #dash - read direction at the moment of press
                         if event.key == pygame.K_x or event.key == pygame.K_LSHIFT or event.key == pygame.K_RSHIFT:
                             keys = pygame.key.get_pressed()
                             goright = keys[pygame.K_RIGHT] or keys[pygame.K_d]
@@ -610,6 +702,7 @@ class Game:
                             self.player.dash(dx, dy)
 
                 if event.type == pygame.KEYUP:
+                    #releasing jump cuts the jump arc short
                     if self.state == "play":
                         if event.key == pygame.K_z or event.key == pygame.K_SPACE or event.key == pygame.K_UP or event.key == pygame.K_w:
                             if self.player != None:
@@ -619,6 +712,7 @@ class Game:
                 self.updateparticles()
 
                 if self.respawning:
+                    #count down respawn delay then reload level
                     self.deathtimer -= 1
                     if self.deathtimer <= 0:
                         self.loadlevel(self.levelnum)
@@ -634,6 +728,7 @@ class Game:
                     elif result == "goal":
                         self.spawnparticles(self.goalrect.centerx, self.goalrect.centery, goalcolor)
 
+                        #save split time and update best if needed
                         leveltime = pygame.time.get_ticks() - self.levelstarttime
                         self.leveltimes.append(leveltime)
 
@@ -642,6 +737,7 @@ class Game:
 
                         self.levelnum += 1
                         if self.levelnum >= len(levels):
+                            #all levels done - go to win screen and update PB
                             self.totaltime = pygame.time.get_ticks() - self.starttime
                             self.timerrunning = False
                             if self.besttime == 0 or self.totaltime < self.besttime:
@@ -650,6 +746,7 @@ class Game:
                         else:
                             self.loadlevel(self.levelnum)
 
+            #draw the right screen based on state
             if self.state == "menu":
                 self.drawmenu()
             elif self.state == "win":
@@ -663,10 +760,12 @@ class Game:
                 self.drawparticles()
                 self.drawui()
 
+                #show big X for a moment after death
                 if self.respawning and self.deathtimer > 20:
                     xtext = self.bigfont.render("X", True, deathcolor)
                     self.screen.blit(xtext, (screenw // 2 - xtext.get_width() // 2, screenh // 2 - 30))
 
+            #push frame to screen and cap fps
             pygame.display.flip()
             self.clock.tick(fps)
 
