@@ -330,12 +330,16 @@ class Game:
         self.bestleveltimes.append(0)
 
     def makeicon(self):
-        #draw a tiny icon for the window titlebar
-        ico = pygame.Surface((32, 32))
-        ico.fill((18, 18, 55))
-        pygame.draw.rect(ico, playercolor, (9, 9, 12, 16))
-        pygame.draw.circle(ico, goalcolor, (24, 8), 5)
-        pygame.display.set_icon(ico)
+        #load logo.png as the window icon, fall back to drawn icon if file missing
+        try:
+            ico = pygame.image.load("logo.png")
+            pygame.display.set_icon(ico)
+        except:
+            ico = pygame.Surface((32, 32))
+            ico.fill((18, 18, 55))
+            pygame.draw.rect(ico, playercolor, (9, 9, 12, 16))
+            pygame.draw.circle(ico, goalcolor, (24, 8), 5)
+            pygame.display.set_icon(ico)
 
     def makebg(self):
         #draw gradient sky line by line and put stars on top
