@@ -3,6 +3,9 @@ import pygame
 import sys
 import math
 import random
+import json
+import os
+import datetime
 
 #setting up a virables
 #screen size and fps
@@ -40,6 +43,13 @@ dashspeed = 13.0
 dashtime = 12
 coyotetime = 6
 jumpbuffer = 8
+
+#save file sits next to the .exe when frozen, next to main.py otherwise
+if getattr(sys, "frozen", False):
+    basedir = os.path.dirname(sys.executable)
+else:
+    basedir = os.path.dirname(os.path.abspath(__file__))
+savefile = os.path.join(basedir, "saves.json")
 
 
 #creating a levels.
@@ -329,6 +339,10 @@ class Game:
         self.bestleveltimes.append(0)
         self.bestleveltimes.append(0)
 
+        #run history loaded from saves.json
+        self.runhistory = []
+        self.loadsaves()
+
     def makeicon(self):
         #load logo.png as the window icon, fall back to drawn icon if file missing
         try:
@@ -355,6 +369,51 @@ class Game:
             sy = self.stars[i][1]
             pygame.draw.circle(surf, starcolor, (sx, sy), 1)
         return surf
+
+    #--- save / load ---
+
+    def loadsaves(self):
+        #read saves.json and restore best times and run history
+        try:
+            with open(savefile, "r") as f:
+                data = json.load(f)
+            self.besttime = data.get("besttime", 0)
+            bl = data.get("bestleveltimes", [0, 0, 0])
+            #make sure list is always length 3
+            while len(bl) < 3:
+                bl.append(0)
+            self.bestleveltimes = bl
+            self.runhistory = data.get("runhistory", [])
+        except:
+            #no file yet or corrupted - start fresh
+            self.besttime = 0
+            self.bestleveltimes = [0, 0, 0]
+            self.runhistory = []
+
+    def savegame(self):
+        #write best times and last 10 runs to saves.json after every completed run
+        entry = {}
+        entry["date"] = datetime.datetime.now().strftime("%d.%m.%Y %H:%M")
+        entry["totaltime"] = self.totaltime
+        entry["deaths"] = self.deaths
+        entry["splits"] = list(self.leveltimes)
+        entry["pb"] = (self.totaltime == self.besttime)
+
+        self.runhistory.append(entry)
+        #keep only last 10 runs
+        if len(self.runhistory) > 10:
+            self.runhistory = self.runhistory[-10:]
+
+        data = {}
+        data["besttime"] = self.besttime
+        data["bestleveltimes"] = self.bestleveltimes
+        data["runhistory"] = self.runhistory
+
+        try:
+            with open(savefile, "w") as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+        except:
+            pass
 
     def loadlevel(self, num):
         #load platforms, spikes, goal and spawn player for the given level
@@ -618,6 +677,23 @@ class Game:
                 sv = self.tinyfont.render(splits.strip(), True, silvercolor)
                 self.screen.blit(sv, (screenw // 2 - sv.get_width() // 2, screenh // 2 + 115))
 
+        #last 3 runs from history shown on the right side of the menu
+        if len(self.runhistory) > 0:
+            hx = screenw - 210
+            hy = 10
+            hlabel = self.tinyfont.render("Last runs:", True, hintcolor)
+            self.screen.blit(hlabel, (hx, hy))
+            hy += 18
+            #show most recent first
+            shown = self.runhistory[-3:][::-1]
+            for entry in shown:
+                col = goldcolor if entry.get("pb") else silvercolor
+                tstr = self.gettimestr(entry["totaltime"])
+                line = entry["date"] + "  " + tstr + "  x" + str(entry["deaths"])
+                ls = self.tinyfont.render(line, True, col)
+                self.screen.blit(ls, (hx, hy))
+                hy += 16
+
         ctrl = self.tinyfont.render("WASD/Arrows: move  |  Z/Space: jump (hold longer = higher)  |  X/Shift: dash  |  R: restart", True, hintcolor)
         self.screen.blit(ctrl, (screenw // 2 - ctrl.get_width() // 2, screenh - 28))
 
@@ -658,6 +734,30 @@ class Game:
                 ls = self.smallfont.render(lstr, True, lcolor)
                 self.screen.blit(ls, (screenw // 2 - ls.get_width() // 2, y))
                 y += 26
+
+        #run history table on the right of win screen - last 5 runs
+        if len(self.runhistory) > 0:
+            hx = screenw - 220
+            hy = 10
+            hlabel = self.smallfont.render("Run history:", True, hintcolor)
+            self.screen.blit(hlabel, (hx, hy))
+            hy += 22
+            shown = self.runhistory[-5:][::-1]
+            for entry in shown:
+                col = goldcolor if entry.get("pb") else silvercolor
+                tstr = self.gettimestr(entry["totaltime"])
+                line1 = entry["date"] + "  " + tstr
+                line2 = "deaths: " + str(entry["deaths"])
+                #splits line
+                spstr = ""
+                for si in range(len(entry.get("splits", []))):
+                    spstr = spstr + "L" + str(si + 1) + ":" + self.gettimestr(entry["splits"][si]) + " "
+                ls1 = self.tinyfont.render(line1, True, col)
+                ls2 = self.tinyfont.render(line2 + "  " + spstr.strip(), True, hintcolor)
+                self.screen.blit(ls1, (hx, hy))
+                hy += 14
+                self.screen.blit(ls2, (hx, hy))
+                hy += 18
 
         r = self.midfont.render("ENTER or R - play again", True, white)
         self.screen.blit(r, (screenw // 2 - r.get_width() // 2, screenh // 2 + 160))
@@ -741,11 +841,12 @@ class Game:
 
                         self.levelnum += 1
                         if self.levelnum >= len(levels):
-                            #all levels done - go to win screen and update PB
+                            #all levels done - go to win screen, update PB, auto-save
                             self.totaltime = pygame.time.get_ticks() - self.starttime
                             self.timerrunning = False
                             if self.besttime == 0 or self.totaltime < self.besttime:
                                 self.besttime = self.totaltime
+                            self.savegame()
                             self.state = "win"
                         else:
                             self.loadlevel(self.levelnum)
